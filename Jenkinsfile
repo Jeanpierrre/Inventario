@@ -7,13 +7,13 @@ pipeline {
         SONAR_TOKEN = credentials('sonar-token-netware')
         SONAR_PROJECT_KEY = 'GYKVENTAS'
         
-        // Variables de entorno para Node.js
-        NODE_HOME = tool name: 'NodeJS-18', type: 'nodejs'
+        // Variables de entorno para Node.js 20
+        NODE_HOME = tool name: 'NodeJS-20', type: 'nodejs'
         PATH = "${NODE_HOME}/bin;${env.PATH}"
     }
     
     tools {
-        nodejs 'NodeJS-18'
+        nodejs 'NodeJS-20'
     }
     
     stages {
