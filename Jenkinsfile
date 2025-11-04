@@ -40,7 +40,7 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 echo '📦 Instalando dependencias del proyecto...'
-                bat 'npm install'
+                bat 'npm install --legacy-peer-deps'
             }
         }
         
