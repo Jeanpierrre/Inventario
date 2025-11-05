@@ -58,17 +58,18 @@ pipeline {
             }
         }
         
-        stage('SonarQube Analysis') {
+       stage('SonarQube Analysis') {
             steps {
                 echo '🔍 Ejecutando análisis de código con SonarQube...'
                 script {
+                    def scannerHome = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
                     bat """
-                        sonar-scanner.bat ^
+                        "${scannerHome}\\bin\\sonar-scanner.bat" ^
                         -D"sonar.projectKey=${SONAR_PROJECT_KEY}" ^
                         -D"sonar.sources=." ^
                         -D"sonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/**" ^
                         -D"sonar.host.url=${SONAR_HOST_URL}" ^
-                        -D"sonar.token=%SONAR_TOKEN%"
+                        -D"sonar.token=${SONAR_TOKEN}"
                     """
                 }
             }
@@ -112,3 +113,4 @@ pipeline {
         }
     }
 }
+
