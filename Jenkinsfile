@@ -2,15 +2,14 @@ pipeline {
     agent any
     
     environment {
-        // Variables de entorno para SonarQube
-        SONAR_HOST_URL = 'https://srvapp.netwaresoft.com'
-        SONAR_TOKEN = credentials('sonar-token-netware')
-        SONAR_PROJECT_KEY = 'GYKVENTAS'
-        
-        // Variables de entorno para Node.js 20
-        NODE_HOME = tool name: 'NodeJS-20', type: 'nodejs'
-        PATH = "${NODE_HOME}/bin;${env.PATH}"
-    }
+    // Variables de entorno para SonarQube
+    SONAR_HOST_URL = 'https://srvapp.netwaresoft.com'
+    SONAR_PROJECT_KEY = 'GYKVENTAS'
+    
+    // Variables de entorno para Node.js
+    NODE_HOME = tool name: 'NodeJS-18', type: 'nodejs'
+    PATH = "${NODE_HOME}/bin;${env.PATH}"
+    }    
     
     tools {
         nodejs 'NodeJS-20'
@@ -113,4 +112,5 @@ pipeline {
         }
     }
 }
+
 
