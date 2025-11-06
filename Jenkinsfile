@@ -43,8 +43,15 @@ pipeline {
             steps {
                 echo '📦 Instalando dependencias del proyecto...'
                 script {
-                    // Instalar dependencias con configuración optimizada
-                    bat 'npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund || npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund'
+                    // Generar package-lock.json si no existe
+                    bat '''
+                        if not exist package-lock.json (
+                            echo Generando package-lock.json...
+                            npm install --package-lock-only --legacy-peer-deps
+                        )
+                    '''
+                    // Instalar dependencias con npm ci (más rápido y limpio)
+                    bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
                 }
             }
         }
