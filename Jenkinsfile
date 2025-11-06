@@ -99,7 +99,43 @@ pipeline {
                 }
             }
         }
-        
+        stage('JMeter Performance Tests') {
+            steps {
+                echo '⚡ Ejecutando pruebas de rendimiento con JMeter...'
+                script {
+                    try {
+                        // Crear carpeta results
+                        bat 'if not exist results mkdir results'
+                        
+                        // Iniciar Next.js en segundo plano
+                        bat 'start /B npm run start'
+                        
+                        // Esperar a que la app esté lista
+                        echo 'Esperando 20 segundos para que Next.js inicie...'
+                        sleep(time: 20, unit: 'SECONDS')
+                        
+                        // Ejecutar JMeter
+                        bat '''
+                            "C:\\apache-jmeter-5.6.3\\bin\\jmeter.bat" -n ^
+                            -t tests/api-load-test.jmx ^
+                            -l results/jmeter-results.jtl ^
+                            -e -o results/jmeter-report ^
+                            -Jbase_url=localhost:3000
+                        '''
+                        
+                        // Archivar resultados
+                        archiveArtifacts artifacts: 'results/jmeter-report/**/*', allowEmptyArchive: true
+                        
+                        echo '✅ Pruebas JMeter completadas'
+                    } catch (Exception e) {
+                        echo "⚠️ Error en JMeter: ${e.message}"
+                    } finally {
+                        // Siempre detener Node.js
+                        bat 'taskkill /F /IM node.exe /T || exit 0'
+                    }
+                }
+            }
+        }
         stage('OWASP Dependency Check') {
             steps {
                 echo '🛡️ Analizando vulnerabilidades OWASP...'
@@ -188,3 +224,4 @@ pipeline {
         }
     }
 }
+
