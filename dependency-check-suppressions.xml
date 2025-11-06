@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    
+    <!-- Suprimir advertencias de archivos en .next (generados temporalmente por Next.js) -->
+    <suppress>
+        <notes><![CDATA[
+        Archivos package.json en .next son generados automáticamente por Next.js durante el build
+        y no necesitan node_modules propios. Estos archivos son temporales y no representan riesgos de seguridad.
+        ]]></notes>
+        <filePath regex="true">.*[\\/]\.next[\\/].*</filePath>
+    </suppress>
+    
+    <!-- Suprimir advertencias de módulos opcionales de Next.js -->
+    <suppress>
+        <notes><![CDATA[
+        Módulos SWC opcionales específicos de plataforma que no se instalan en Windows.
+        Estos módulos solo se requieren en sus plataformas específicas (Darwin/Linux).
+        ]]></notes>
+        <packageUrl regex="true">^pkg:npm/@next/swc-(darwin|linux).*$</packageUrl>
+    </suppress>
+    
+    <!-- Suprimir advertencias de módulos opcionales de Sharp -->
+    <suppress>
+        <notes><![CDATA[
+        Módulos opcionales de Sharp para diferentes plataformas y arquitecturas.
+        Solo se instalan en la plataforma específica donde se ejecuta.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:npm/@img/sharp-.*$</packageUrl>
+    </suppress>
+    
+    <!-- Suprimir advertencias de módulos opcionales de Tailwind CSS -->
+    <suppress>
+        <notes><![CDATA[
+        Módulos opcionales de Tailwind CSS Oxide para diferentes plataformas.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:npm/@tailwindcss/oxide-.*$</packageUrl>
+    </suppress>
+    
+    <!-- Suprimir advertencias de módulos opcionales de LightningCSS -->
+    <suppress>
+        <notes><![CDATA[
+        Módulos opcionales de LightningCSS para diferentes plataformas.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:npm/lightningcss-.*$</packageUrl>
+    </suppress>
+    
+    <!-- Suprimir advertencias de fsevents (solo macOS) -->
+    <suppress>
+        <notes><![CDATA[
+        fsevents es una dependencia opcional exclusiva para macOS.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:npm/fsevents@.*$</packageUrl>
+    </suppress>
+    
+    <!-- Suprimir advertencias de dependencias de testing -->
+    <suppress>
+        <notes><![CDATA[
+        Dependencias de desarrollo de testing-library con peer dependencies opcionales.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:npm/@testing-library/.*$</packageUrl>
+    </suppress>
+    
+    <!-- Suprimir advertencias de módulos WASM opcionales -->
+    <suppress>
+        <notes><![CDATA[
+        Módulos WASM y nativos opcionales que no se instalan en todas las plataformas.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:npm/@(emnapi|napi-rs|tybys)/.*$</packageUrl>
+    </suppress>
+    
+</suppressions>
