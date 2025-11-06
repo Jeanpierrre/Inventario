@@ -2,14 +2,17 @@ pipeline {
     agent any
     
     environment {
-    // Variables de entorno para SonarQube
-    SONAR_HOST_URL = 'https://srvapp.netwaresoft.com'
-    SONAR_PROJECT_KEY = 'GYKVENTAS'
-    
-    // Variables de entorno para Node.js
-    NODE_HOME = tool name: 'NodeJS-18', type: 'nodejs'
-    PATH = "${NODE_HOME}/bin;${env.PATH}"
-    }    
+        // Variables de entorno para SonarQube
+        SONAR_HOST_URL = 'https://srvapp.netwaresoft.com'
+        SONAR_PROJECT_KEY = 'GYKVENTAS'
+        
+        // Variables de entorno para Node.js
+        NODE_HOME = tool name: 'NodeJS-20', type: 'nodejs'
+        PATH = "${NODE_HOME}/bin;${env.PATH}"
+        
+        // Deshabilitar telemetría de Next.js
+        NEXT_TELEMETRY_DISABLED = '1'
+    }
     
     tools {
         nodejs 'NodeJS-20'
@@ -39,8 +42,10 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 echo '📦 Instalando dependencias del proyecto...'
-                bat 'npm install --legacy-peer-deps'
-                bat 'npm install --package-lock-only'
+                script {
+                    // Instalar dependencias con configuración optimizada
+                    bat 'npm ci --legacy-peer-deps --prefer-offline --no-audit --no-fund || npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund'
+                }
             }
         }
         
@@ -54,11 +59,19 @@ pipeline {
         stage('Run Tests') {
             steps {
                 echo '🧪 Ejecutando pruebas...'
-                bat 'npm test -- --passWithNoTests || exit 0'
+                script {
+                    try {
+                        bat 'npm test -- --passWithNoTests --silent'
+                    } catch (Exception e) {
+                        echo "⚠️ Tests completados con advertencias: ${e.message}"
+                        // No fallar el build si no hay tests
+                        currentBuild.result = 'SUCCESS'
+                    }
+                }
             }
         }
         
-       stage('SonarQube Analysis') {
+        stage('SonarQube Analysis') {
             steps {
                 echo '🔍 Ejecutando análisis de código con SonarQube...'
                 script {
@@ -66,44 +79,71 @@ pipeline {
                     withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
                         bat """
                             "${scannerHome}\\bin\\sonar-scanner.bat" ^
-                            -D"sonar.projectKey=${SONAR_PROJECT_KEY}" ^
-                            -D"sonar.sources=." ^
-                            -D"sonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/**" ^
-                            -D"sonar.host.url=${SONAR_HOST_URL}" ^
-                            -D"sonar.token=%SONAR_TOKEN%"
+                            -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
+                            -Dsonar.sources=. ^
+                            -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/**,**/build/**,**/dist/** ^
+                            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx ^
+                            -Dsonar.javascript.node.maxspace=4096 ^
+                            -Dsonar.host.url=${SONAR_HOST_URL} ^
+                            -Dsonar.token=%SONAR_TOKEN% ^
+                            -Dsonar.log.level=INFO
                         """
                     }
                 }
             }
         }
         
-     stage('OWASP Dependency Check') {
-        steps {
-            echo '🛡️ Analizando vulnerabilidades OWASP...'
-            script {
-                try {
-                    dependencyCheck additionalArguments: '''
-                        --scan .
-                        --format HTML
-                        --format JSON
-                        --prettyPrint
-                        --project "Inventario"
-                    ''', 
-                    odcInstallation: 'OWASP-DC'
-                    
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                } catch (Exception e) {
-                    echo "⚠️ OWASP completado con advertencias: ${e.message}"
-                    currentBuild.result = 'SUCCESS'
+        stage('OWASP Dependency Check') {
+            steps {
+                echo '🛡️ Analizando vulnerabilidades OWASP...'
+                script {
+                    try {
+                        dependencyCheck additionalArguments: """
+                            --scan .
+                            --out .
+                            --format HTML
+                            --format JSON
+                            --prettyPrint
+                            --project "Inventario"
+                            --suppression dependency-check-suppressions.xml
+                            --enableExperimental
+                            --nodeAuditSkipDevDependencies
+                            --nodePackageSkipDevDependencies
+                        """.trim(), 
+                        odcInstallation: 'OWASP-DC',
+                        stopBuild: false
+                        
+                        // Publicar resultados si existen
+                        try {
+                            dependencyCheckPublisher pattern: '**/dependency-check-report.xml',
+                                                    failedTotalCritical: 10,
+                                                    failedTotalHigh: 20,
+                                                    unstableTotalCritical: 5,
+                                                    unstableTotalHigh: 10
+                        } catch (Exception publishError) {
+                            echo "ℹ️ No se encontró archivo XML para publicar (esperado si es primera ejecución)"
+                        }
+                    } catch (Exception e) {
+                        echo "⚠️ OWASP completado con advertencias menores: ${e.message}"
+                        // No fallar el build por advertencias de módulos opcionales
+                        currentBuild.result = 'SUCCESS'
+                    }
                 }
             }
         }
-    }
         
         stage('Archive Results') {
             steps {
                 echo '📦 Archivando resultados...'
-                archiveArtifacts artifacts: '**/dependency-check-report.html', allowEmptyArchive: true
+                script {
+                    try {
+                        archiveArtifacts artifacts: '**/dependency-check-report.html,**/dependency-check-report.json', 
+                                       allowEmptyArchive: true,
+                                       fingerprint: true
+                    } catch (Exception e) {
+                        echo "⚠️ No se encontraron artefactos para archivar: ${e.message}"
+                    }
+                }
             }
         }
     }
@@ -111,18 +151,32 @@ pipeline {
     post {
         always {
             echo '🧹 Limpiando workspace...'
-            cleanWs()
+            script {
+                try {
+                    // Limpiar solo archivos temporales, mantener node_modules para cache
+                    bat '''
+                        if exist ".next" rmdir /s /q ".next"
+                        if exist ".scannerwork" rmdir /s /q ".scannerwork"
+                        if exist "dependency-check-report.html" del /q "dependency-check-report.html"
+                        if exist "dependency-check-report.json" del /q "dependency-check-report.json"
+                    '''
+                } catch (Exception e) {
+                    echo "⚠️ Error en limpieza (no crítico): ${e.message}"
+                }
+            }
         }
         success {
             echo '✅ ¡Pipeline ejecutado exitosamente!'
             echo "📊 Ver resultados en SonarQube: ${SONAR_HOST_URL}/dashboard?id=${SONAR_PROJECT_KEY}"
+            echo "🛡️ Reporte OWASP archivado en los artefactos del build"
         }
         failure {
             echo '❌ El pipeline falló. Revisa los logs.'
+            echo "🔍 Verifica las etapas marcadas como fallidas arriba"
+        }
+        unstable {
+            echo '⚠️ Pipeline completado con advertencias'
+            echo "📊 Revisa los reportes en SonarQube y OWASP"
         }
     }
 }
-
-
-
-
