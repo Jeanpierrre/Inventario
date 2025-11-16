@@ -93,12 +93,9 @@ pipeline {
                         )
                     '''
                     
-                    // En producción, usar solo dependencias de producción
-                    if (DEPLOY_ENV == 'prod') {
-                        bat 'npm ci --omit=dev --legacy-peer-deps --prefer-offline'
-                    } else {
-                        bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
-                    }
+                    // CORRECCIÓN: NO omitir dev dependencies para el build
+                    // Next.js necesita devDependencies para construir
+                    bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
                 }
             }
         }
@@ -392,3 +389,4 @@ pipeline {
         }
     }
 }
+
