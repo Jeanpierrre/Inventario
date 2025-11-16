@@ -7,8 +7,10 @@
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
-    "test": "jest --passWithNoTests",
-    "test:coverage": "jest --coverage --passWithNoTests"
+  
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -64,8 +66,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
-    "@testing-library/jest-dom": "^6.5.0",
-    "@testing-library/react": "^16.0.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "14.6.1",
     "@types/jest": "^29.5.14",
     "@types/node": "^22",
     "@types/react": "^18",
