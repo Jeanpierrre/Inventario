@@ -1,7 +1,6 @@
 pipeline {
     agent any
     
-    // Parámetros para seleccionar el entorno
     parameters {
         choice(
             name: 'ENVIRONMENT',
@@ -16,14 +15,12 @@ pipeline {
     }
     
     environment {
-        // Variables globales
         SONAR_HOST_URL = 'https://srvapp.netwaresoft.com'
         SONAR_PROJECT_KEY = 'GYKVENTAS'
         NODE_HOME = tool name: 'NodeJS-20', type: 'nodejs'
         PATH = "${NODE_HOME}/bin;${env.PATH}"
         NEXT_TELEMETRY_DISABLED = '1'
         
-        // Variables dinámicas según entorno
         DEPLOY_ENV = "${params.ENVIRONMENT}"
         RUN_SONARQUBE = "${params.ENVIRONMENT == 'dev' ? 'true' : 'false'}"
         RUN_NEWMAN = "${params.ENVIRONMENT == 'prod' ? 'false' : 'true'}"
@@ -49,7 +46,6 @@ pipeline {
                     echo "🛡️ OWASP: ${RUN_OWASP == 'true' ? '✅ ACTIVADO' : '⏭️ OMITIDO'}"
                     echo "=========================================="
                     
-                    // Configurar variables adicionales por entorno
                     if (DEPLOY_ENV == 'prod') {
                         env.BUILD_OPTIMIZATION = 'true'
                         env.SOURCE_MAPS = 'false'
@@ -82,29 +78,26 @@ pipeline {
             }
         }
         
-      stage('Install Dependencies') {
-                steps {
-                    echo "📦 Instalando dependencias para ${DEPLOY_ENV}..."
-                    script {
-                        bat '''
-                            if not exist package-lock.json (
-                                echo Generando package-lock.json...
-                                npm install --package-lock-only --legacy-peer-deps
-                            )
-                        '''
-                        
-                        // SIEMPRE instalar TODAS las dependencias (incluyendo devDependencies)
-                        // Next.js necesita @tailwindcss/postcss y otras devDependencies para el build
-                        bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
-                    }
+        stage('Install Dependencies') {
+            steps {
+                echo "📦 Instalando dependencias para ${DEPLOY_ENV}..."
+                script {
+                    bat '''
+                        if not exist package-lock.json (
+                            echo Generando package-lock.json...
+                            npm install --package-lock-only --legacy-peer-deps
+                        )
+                    '''
+                    
+                    bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
                 }
             }
+        }
         
         stage('Build Frontend') {
             steps {
                 echo "🔨 Construyendo aplicación Next.js para ${DEPLOY_ENV}..."
                 script {
-                    // Build optimizado para producción
                     if (DEPLOY_ENV == 'prod') {
                         bat 'npm run build -- --no-lint'
                     } else {
@@ -114,48 +107,44 @@ pipeline {
             }
         }
 
-
-stage('Python Tests & Coverage') {
-    when {
-        expression { 
-            return RUN_SONARQUBE == 'true' // Solo ejecutar en DEV (igual que SonarQube)
-        }
-    }
-    steps {
-        echo '🐍 Ejecutando pruebas Python con cobertura...'
-        script {
-            try {
-                // Verificar si Python está instalado
-                bat 'python --version'
-                
-                // Instalar dependencias de pytest si no están instaladas
-                bat '''
-                    echo Instalando dependencias de Python...
-                    python -m pip install --upgrade pip
-                    pip install pytest pytest-cov
-                '''
-                
-                // Ejecutar pytest con cobertura
-                bat '''
-                    echo Ejecutando pytest con cobertura...
-                    pytest --cov=db --cov=sistema --cov-report=xml --cov-report=term-missing
-                '''
-                
-                echo '✅ Pruebas Python completadas - coverage.xml generado'
-                
-            } catch (Exception e) {
-                echo "⚠️ Error en pruebas Python: ${e.message}"
-                // Generar coverage.xml vacío para que SonarQube no falle
-                bat '''
-                    echo ^<?xml version="1.0" ?^> > coverage.xml
-                    echo ^<coverage version="1.0"^>^</coverage^> >> coverage.xml
-                '''
-                echo "ℹ️ Se generó coverage.xml vacío para continuar con SonarQube"
+        stage('Python Tests & Coverage') {
+            when {
+                expression { 
+                    return RUN_SONARQUBE == 'true'
+                }
+            }
+            steps {
+                echo '🐍 Ejecutando pruebas Python con cobertura...'
+                script {
+                    try {
+                        bat 'python --version'
+                        
+                        bat '''
+                            echo Instalando dependencias de Python...
+                            python -m pip install --upgrade pip
+                            pip install pytest pytest-cov
+                        '''
+                        
+                        // ⬇️ CAMBIO: Agregar DATABASE_URL
+                        bat '''
+                            set DATABASE_URL=sqlite:///test.db
+                            echo Ejecutando pytest con cobertura...
+                            pytest --cov=db --cov=sistema --cov-report=xml --cov-report=term-missing
+                        '''
+                        
+                        echo '✅ Pruebas Python completadas - coverage.xml generado'
+                        
+                    } catch (Exception e) {
+                        echo "⚠️ Error en pruebas Python: ${e.message}"
+                        bat '''
+                            echo ^<?xml version="1.0" ?^> > coverage.xml
+                            echo ^<coverage version="1.0"^>^</coverage^> >> coverage.xml
+                        '''
+                        echo "ℹ️ Se generó coverage.xml vacío para continuar con SonarQube"
+                    }
+                }
             }
         }
-    }
-}
-
         
         stage('Run Tests') {
             when {
@@ -176,7 +165,7 @@ stage('Python Tests & Coverage') {
             }
         }
         
-      stage('SonarQube Analysis') {
+        stage('SonarQube Analysis') {
             when {
                 expression { return RUN_SONARQUBE == 'true' }
             }
@@ -192,6 +181,7 @@ stage('Python Tests & Coverage') {
                 }
             }
         }
+        
         stage('Newman API Tests') {
             when {
                 expression { return RUN_NEWMAN == 'true' }
@@ -200,17 +190,12 @@ stage('Python Tests & Coverage') {
                 echo "🧪 [${DEPLOY_ENV.toUpperCase()}] Ejecutando pruebas de API con Newman (Postman)..."
                 script {
                     try {
-                        // Crear carpeta para resultados
                         bat 'if not exist newman-results mkdir newman-results'
-                        
-                        // Iniciar la aplicación
                         bat 'start /B npm run start'
                         
                         echo "Esperando 20 segundos para que Next.js inicie en ${DEPLOY_ENV}..."
                         sleep(time: 20, unit: 'SECONDS')
                         
-                        // Ejecutar Newman con colección de Postman
-                        // Asumiendo que tienes una colección en tests/postman-collection.json
                         bat """
                             newman run tests/postman-collection.json ^
                             --environment tests/postman-env-${DEPLOY_ENV}.json ^
@@ -219,14 +204,12 @@ stage('Python Tests & Coverage') {
                             --reporter-json-export newman-results/newman-report-${DEPLOY_ENV}.json
                         """
                         
-                        // Archivar resultados
                         archiveArtifacts artifacts: 'newman-results/**/*', allowEmptyArchive: true
                         
                         echo "✅ Pruebas Newman completadas para ${DEPLOY_ENV}"
                     } catch (Exception e) {
                         echo "⚠️ Error en Newman: ${e.message}"
                         if (DEPLOY_ENV == 'qa') {
-                            // En QA, los errores de Newman son críticos
                             throw e
                         }
                     } finally {
@@ -245,7 +228,6 @@ stage('Python Tests & Coverage') {
                 script {
                     try {
                         bat 'if not exist results mkdir results'
-                        
                         bat 'start /B npm run start'
                         
                         echo 'Esperando 20 segundos para que Next.js inicie...'
@@ -309,7 +291,6 @@ stage('Python Tests & Coverage') {
                 echo '📦 Archivando resultados...'
                 script {
                     try {
-                        // Archivar reportes según el entorno
                         if (RUN_OWASP == 'true') {
                             archiveArtifacts artifacts: '**/dependency-check-report.html,**/dependency-check-report.json', 
                                            allowEmptyArchive: true,
@@ -322,7 +303,6 @@ stage('Python Tests & Coverage') {
                                            fingerprint: true
                         }
                         
-                        // Siempre archivar logs de build
                         bat "echo Build completado para entorno: ${DEPLOY_ENV} > build-info-${DEPLOY_ENV}.txt"
                         bat "echo Fecha: %date% %time% >> build-info-${DEPLOY_ENV}.txt"
                         archiveArtifacts artifacts: "build-info-${DEPLOY_ENV}.txt"
@@ -341,17 +321,16 @@ stage('Python Tests & Coverage') {
             steps {
                 echo "🚀 Preparando despliegue para ${DEPLOY_ENV}..."
                 script {
-                    // Aquí puedes agregar pasos de despliegue específicos
                     echo "✅ Build listo para despliegue en ${DEPLOY_ENV}"
                     
-                    // Ejemplo: crear artefacto de despliegue
+                    // ⬇️ CAMBIO: next.config.js → next.config.mjs
                     bat """
                         echo Creando paquete de despliegue...
                         if not exist deploy mkdir deploy
                         xcopy /E /I /Y .next deploy\\.next
                         xcopy /E /I /Y public deploy\\public
                         copy package.json deploy\\
-                        copy next.config.js deploy\\
+                        copy next.config.mjs deploy\\
                     """
                     
                     archiveArtifacts artifacts: 'deploy/**/*', fingerprint: true
@@ -423,8 +402,3 @@ stage('Python Tests & Coverage') {
         }
     }
 }
-
-
-
-
-
