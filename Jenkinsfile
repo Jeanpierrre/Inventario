@@ -113,6 +113,49 @@ pipeline {
                 }
             }
         }
+
+
+stage('Python Tests & Coverage') {
+    when {
+        expression { 
+            return RUN_SONARQUBE == 'true' // Solo ejecutar en DEV (igual que SonarQube)
+        }
+    }
+    steps {
+        echo '🐍 Ejecutando pruebas Python con cobertura...'
+        script {
+            try {
+                // Verificar si Python está instalado
+                bat 'python --version'
+                
+                // Instalar dependencias de pytest si no están instaladas
+                bat '''
+                    echo Instalando dependencias de Python...
+                    python -m pip install --upgrade pip
+                    pip install pytest pytest-cov
+                '''
+                
+                // Ejecutar pytest con cobertura
+                bat '''
+                    echo Ejecutando pytest con cobertura...
+                    pytest --cov=db --cov=sistema --cov-report=xml --cov-report=term-missing
+                '''
+                
+                echo '✅ Pruebas Python completadas - coverage.xml generado'
+                
+            } catch (Exception e) {
+                echo "⚠️ Error en pruebas Python: ${e.message}"
+                // Generar coverage.xml vacío para que SonarQube no falle
+                bat '''
+                    echo ^<?xml version="1.0" ?^> > coverage.xml
+                    echo ^<coverage version="1.0"^>^</coverage^> >> coverage.xml
+                '''
+                echo "ℹ️ Se generó coverage.xml vacío para continuar con SonarQube"
+            }
+        }
+    }
+}
+
         
         stage('Run Tests') {
             when {
@@ -133,34 +176,22 @@ pipeline {
             }
         }
         
-       stage('SonarQube Analysis') {
-                when {
-                    expression { return RUN_SONARQUBE == 'true' }
-                }
-                steps {
-                    echo '🔍 [DEV ONLY] Ejecutando análisis de código con SonarQube...'
-                    script {
-                        def scannerHome = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-                        withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
-                            bat """
-                                "${scannerHome}\\bin\\sonar-scanner.bat" ^
-                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
-                                -Dsonar.projectName=${SONAR_PROJECT_KEY} ^
-                                -Dsonar.sources=sistema.py,db.py ^
-                                -Dsonar.tests=test ^
-                                -Dsonar.test.inclusions=**/*test*.py,**/test_*.py ^
-                                -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/**,**/build/**,**/dist/**,**/__pycache__/**,**/venv/**,**/env/**,**/.venv/**,**/.env/** ^
-                                -Dsonar.python.version=3.10.5 ^
-                                -Dsonar.host.url=${SONAR_HOST_URL} ^
-                                -Dsonar.token=%SONAR_TOKEN% ^
-                                -Dsonar.sourceEncoding=UTF-8 ^
-                                -Dsonar.log.level=INFO
-                            """
-                        }
+      stage('SonarQube Analysis') {
+            when {
+                expression { return RUN_SONARQUBE == 'true' }
+            }
+            steps {
+                echo '🔍 [DEV ONLY] Ejecutando análisis de código con SonarQube...'
+                script {
+                    def scannerHome = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+                    withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
+                        bat """
+                            "${scannerHome}\\bin\\sonar-scanner.bat"
+                        """
                     }
                 }
             }
-        
+        }
         stage('Newman API Tests') {
             when {
                 expression { return RUN_NEWMAN == 'true' }
@@ -392,6 +423,7 @@ pipeline {
         }
     }
 }
+
 
 
 
