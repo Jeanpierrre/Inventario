@@ -82,28 +82,23 @@ pipeline {
             }
         }
         
-       stage('Install Dependencies') {
-            steps {
-                echo "📦 Instalando dependencias para ${DEPLOY_ENV}..."
-                script {
-                    bat '''
-                        if not exist package-lock.json (
-                            echo Generando package-lock.json...
-                            npm install --package-lock-only --legacy-peer-deps
-                        )
-                    '''
-                    
-                    // ⬇️⬇️⬇️ AQUÍ ESTÁ EL CÓDIGO QUE DEBES CAMBIAR ⬇️⬇️⬇️
-                    // En producción, usar solo dependencias de producción
-                    if (DEPLOY_ENV == 'prod') {
-                        bat 'npm ci --omit=dev --legacy-peer-deps --prefer-offline'
-                    } else {
+      stage('Install Dependencies') {
+                steps {
+                    echo "📦 Instalando dependencias para ${DEPLOY_ENV}..."
+                    script {
+                        bat '''
+                            if not exist package-lock.json (
+                                echo Generando package-lock.json...
+                                npm install --package-lock-only --legacy-peer-deps
+                            )
+                        '''
+                        
+                        // SIEMPRE instalar TODAS las dependencias (incluyendo devDependencies)
+                        // Next.js necesita @tailwindcss/postcss y otras devDependencies para el build
                         bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
                     }
-                    // ⬆️⬆️⬆️ HASTA AQUÍ ⬆️⬆️⬆️
                 }
             }
-}
         
         stage('Build Frontend') {
             steps {
@@ -394,5 +389,6 @@ pipeline {
         }
     }
 }
+
 
 
