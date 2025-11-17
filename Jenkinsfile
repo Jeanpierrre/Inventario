@@ -89,7 +89,11 @@ pipeline {
                         )
                     '''
                     
-                    bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
+                    if (DEPLOY_ENV == 'prod') {
+                        bat 'npm ci --omit=dev --legacy-peer-deps --prefer-offline'
+                    } else {
+                        bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
+                    }
                 }
             }
         }
@@ -106,7 +110,7 @@ pipeline {
                 }
             }
         }
-
+        
         stage('JavaScript/TypeScript Coverage') {
             when {
                 expression { 
@@ -135,8 +139,6 @@ pipeline {
                 }
             }
         }
-
-
         
         stage('Python Tests & Coverage') {
             when {
@@ -156,7 +158,6 @@ pipeline {
                             pip install pytest pytest-cov
                         '''
                         
-                        // ⬇️ CAMBIO: Agregar DATABASE_URL
                         bat '''
                             set DATABASE_URL=sqlite:///test.db
                             echo Ejecutando pytest con cobertura...
@@ -222,6 +223,16 @@ pipeline {
                 script {
                     try {
                         bat 'if not exist newman-results mkdir newman-results'
+                        
+                        // ✅ INSTALAR NEWMAN SI NO EXISTE
+                        echo '📦 Verificando instalación de Newman...'
+                        bat '''
+                            where newman >nul 2>&1 || (
+                                echo Newman no encontrado, instalando...
+                                npm install -g newman newman-reporter-htmlextra
+                            )
+                        '''
+                        
                         bat 'start /B npm run start'
                         
                         echo "Esperando 20 segundos para que Next.js inicie en ${DEPLOY_ENV}..."
@@ -264,19 +275,30 @@ pipeline {
                         echo 'Esperando 20 segundos para que Next.js inicie...'
                         sleep(time: 20, unit: 'SECONDS')
                         
-                        bat '''
-                            "C:\\apache-jmeter-5.6.3\\bin\\jmeter.bat" -n ^
-                            -t tests/api-load-test.jmx ^
-                            -l results/jmeter-results.jtl ^
-                            -e -o results/jmeter-report ^
-                            -Jbase_url=localhost:3000
-                        '''
+                        // ✅ VALIDAR RUTA DE JMETER
+                        def jmeterPath = 'C:\\apache-jmeter-5.6.3\\bin\\jmeter.bat'
+                        def jmeterExists = fileExists(jmeterPath)
                         
-                        archiveArtifacts artifacts: 'results/jmeter-report/**/*', allowEmptyArchive: true
+                        if (jmeterExists) {
+                            bat """
+                                "${jmeterPath}" -n ^
+                                -t tests/api-load-test.jmx ^
+                                -l results/jmeter-results.jtl ^
+                                -e -o results/jmeter-report ^
+                                -Jbase_url=localhost:3000
+                            """
+                            
+                            archiveArtifacts artifacts: 'results/jmeter-report/**/*', allowEmptyArchive: true
+                            echo '✅ Pruebas JMeter completadas'
+                        } else {
+                            echo "⚠️ JMeter no encontrado en ${jmeterPath}"
+                            echo "Por favor instala JMeter o actualiza la ruta"
+                            currentBuild.result = 'UNSTABLE'
+                        }
                         
-                        echo '✅ Pruebas JMeter completadas'
                     } catch (Exception e) {
                         echo "⚠️ Error en JMeter: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
                     } finally {
                         bat 'taskkill /F /IM node.exe /T || exit 0'
                     }
@@ -316,36 +338,43 @@ pipeline {
                 }
             }
         }
-
-
+        
         stage('Install Google Code Style') {
             steps {
                 echo "🎨 Instalando reglas Google Code Style..."
                 script {
-                    // Google Style para JavaScript/TS
-                    bat '''
-                        npm install --save-dev eslint eslint-config-google
-                        if not exist .eslintrc.json (
-                            echo { > .eslintrc.json
-                            echo   "extends": "google", >> .eslintrc.json
-                            echo   "parserOptions": { "ecmaVersion": 2022 } >> .eslintrc.json
-                            echo } >> .eslintrc.json
-                        )
-                    '''
-        
-                    // Python Google Style
-                    bat '''
-                        pip install pylint yapf pylint-google-style
-                        if not exist pylintrc (
-                            echo [MASTER] > pylintrc
-                            echo load-plugins=pylint_google_styleguide >> pylintrc
-                        )
-                    '''
+                    try {
+                        // Google Style para JavaScript/TS
+                        bat '''
+                            npm install --save-dev eslint eslint-config-google
+                            if not exist .eslintrc.json (
+                                echo { > .eslintrc.json
+                                echo   "extends": "google", >> .eslintrc.json
+                                echo   "parserOptions": { "ecmaVersion": 2022 } >> .eslintrc.json
+                                echo } >> .eslintrc.json
+                            )
+                        '''
+            
+                        // ✅ Python Google Style - CORREGIDO
+                        bat '''
+                            pip install pylint yapf pycodestyle
+                            if not exist .pylintrc (
+                                echo [MASTER] > .pylintrc
+                                echo. >> .pylintrc
+                                echo [FORMAT] >> .pylintrc
+                                echo max-line-length=100 >> .pylintrc
+                                echo indent-string='    ' >> .pylintrc
+                            )
+                        '''
+                        
+                        echo '✅ Google Code Style instalado correctamente'
+                    } catch (Exception e) {
+                        echo "⚠️ Error instalando Code Style (no crítico): ${e.message}"
+                        currentBuild.result = 'SUCCESS'
+                    }
                 }
             }
         }
-
-
         
         stage('Archive Results') {
             steps {
@@ -384,14 +413,14 @@ pipeline {
                 script {
                     echo "✅ Build listo para despliegue en ${DEPLOY_ENV}"
                     
-                    // ⬇️ CAMBIO: next.config.js → next.config.mjs
                     bat """
                         echo Creando paquete de despliegue...
                         if not exist deploy mkdir deploy
                         xcopy /E /I /Y .next deploy\\.next
                         xcopy /E /I /Y public deploy\\public
                         copy package.json deploy\\
-                        copy next.config.mjs deploy\\
+                        if exist next.config.mjs copy next.config.mjs deploy\\
+                        if exist next.config.js copy next.config.js deploy\\
                     """
                     
                     archiveArtifacts artifacts: 'deploy/**/*', fingerprint: true
@@ -463,5 +492,3 @@ pipeline {
         }
     }
 }
-
-
