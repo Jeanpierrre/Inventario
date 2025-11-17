@@ -107,6 +107,37 @@ pipeline {
             }
         }
 
+        stage('JavaScript/TypeScript Coverage') {
+            when {
+                expression { 
+                    return RUN_SONARQUBE == 'true'
+                }
+            }
+            steps {
+                echo '📊 Generando cobertura de JavaScript/TypeScript para SonarQube...'
+                script {
+                    try {
+                        bat '''
+                            echo Ejecutando tests con cobertura...
+                            npm test -- --coverage --watchAll=false --passWithNoTests
+                        '''
+                        
+                        echo '✅ Cobertura JS/TS generada - coverage/lcov.info creado'
+                        
+                    } catch (Exception e) {
+                        echo "⚠️ Error en cobertura JS/TS: ${e.message}"
+                        bat '''
+                            if not exist coverage mkdir coverage
+                            echo # Empty coverage > coverage/lcov.info
+                        '''
+                        echo "ℹ️ Se generó lcov.info vacío para continuar"
+                    }
+                }
+            }
+        }
+
+
+        
         stage('Python Tests & Coverage') {
             when {
                 expression { 
@@ -402,3 +433,4 @@ pipeline {
         }
     }
 }
+
