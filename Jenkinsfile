@@ -316,6 +316,36 @@ pipeline {
                 }
             }
         }
+
+
+        stage('Install Google Code Style') {
+            steps {
+                echo "🎨 Instalando reglas Google Code Style..."
+                script {
+                    // Google Style para JavaScript/TS
+                    bat '''
+                        npm install --save-dev eslint eslint-config-google
+                        if not exist .eslintrc.json (
+                            echo { > .eslintrc.json
+                            echo   "extends": "google", >> .eslintrc.json
+                            echo   "parserOptions": { "ecmaVersion": 2022 } >> .eslintrc.json
+                            echo } >> .eslintrc.json
+                        )
+                    '''
+        
+                    // Python Google Style
+                    bat '''
+                        pip install pylint yapf pylint-google-style
+                        if not exist pylintrc (
+                            echo [MASTER] > pylintrc
+                            echo load-plugins=pylint_google_styleguide >> pylintrc
+                        )
+                    '''
+                }
+            }
+        }
+
+
         
         stage('Archive Results') {
             steps {
@@ -433,4 +463,5 @@ pipeline {
         }
     }
 }
+
 
