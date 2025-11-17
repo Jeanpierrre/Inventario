@@ -239,8 +239,8 @@ pipeline {
                         sleep(time: 20, unit: 'SECONDS')
                         
                         bat """
-                            newman run tests/postman-collection.json ^
-                            --environment tests/postman-env-${DEPLOY_ENV}.json ^
+                            newman run test/postman-collection.json ^
+                            --environment test/postman-env-${DEPLOY_ENV}.json ^
                             --reporters cli,htmlextra,json ^
                             --reporter-htmlextra-export newman-results/newman-report-${DEPLOY_ENV}.html ^
                             --reporter-json-export newman-results/newman-report-${DEPLOY_ENV}.json
