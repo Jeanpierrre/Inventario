@@ -155,16 +155,26 @@ pipeline {
             }
         }
         
+       
         stage('SonarQube Analysis') {
             when {
-                expression { return params.SKIP_SONAR == false }
+                expression { return RUN_SONARQUBE == 'true' }
             }
             steps {
-                echo "🔍 [${params.DEPLOY_ENV.toUpperCase()} ONLY] Ejecutando análisis de código con SonarQube..."
+                echo '🔍 [DEV ONLY] Ejecutando análisis de código con SonarQube...'
                 script {
-                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    def scannerHome = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+                    withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
                         bat """
-                            "${SONAR_SCANNER_HOME}\\bin\\sonar-scanner.bat"
+                            "${scannerHome}\\bin\\sonar-scanner.bat" ^
+                            -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
+                            -Dsonar.sources=. ^
+                            -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/**,**/build/**,**/dist/** ^
+                            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx ^
+                            -Dsonar.javascript.node.maxspace=4096 ^
+                            -Dsonar.host.url=${SONAR_HOST_URL} ^
+                            -Dsonar.token=%SONAR_TOKEN% ^
+                            -Dsonar.log.level=INFO
                         """
                     }
                 }
@@ -324,3 +334,4 @@ pipeline {
         }
     }
 }
+
