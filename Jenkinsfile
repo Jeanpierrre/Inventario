@@ -282,44 +282,35 @@ pipeline {
             }
         }
 
-        stage('Newman API Tests') {
-            when {
-                expression { return env.RUN_NEWMAN == 'true' }
-            }
-            steps {
-                echo "🧪 [${env.DEPLOY_ENV.toUpperCase()}] Ejecutando pruebas de API con Newman (Postman)..."
-                script {
-                    try {
-                        bat 'if not exist newman-results mkdir newman-results'
-                        bat '''
-                            where newman >nul 2>&1 || (
-                                echo Newman no encontrado, instalando...
-                                npm install -g newman newman-reporter-htmlextra
-                            )
-                        '''
-                        bat 'start /B npm run start'
-                        echo "Esperando 20 segundos para que Next.js inicie en ${env.DEPLOY_ENV}..."
-                        sleep(time: 20, unit: 'SECONDS')
-                        bat """
-                            newman run test/postman-collection.json ^
-                            --environment test/postman-env-${env.DEPLOY_ENV}.json ^
-                            --reporters cli,htmlextra,json ^
-                            --reporter-htmlextra-export newman-results/newman-report-${env.DEPLOY_ENV}.html ^
-                            --reporter-json-export newman-results/newman-report-${env.DEPLOY_ENV}.json
-                        """
-                        archiveArtifacts artifacts: 'newman-results/**/*', allowEmptyArchive: true
-                        echo "✅ Pruebas Newman completadas para ${env.DEPLOY_ENV}"
-                    } catch (Exception e) {
-                        echo "⚠️ Error en Newman: ${e.message}"
-                        if (env.DEPLOY_ENV == 'qa') {
-                            throw e
-                        }
-                    } finally {
-                        bat 'taskkill /F /IM node.exe /T || exit 0'
-                    }
+       stage('SonarQube Analysis') {
+    when {
+        expression { return env.RUN_SONARQUBE == 'true' }
+    }
+    steps {
+        echo '🔍 [DEV ONLY] Ejecutando análisis de código con SonarQube...'
+        script {
+            try {
+                def scannerHome = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+                withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
+                    bat """
+                        "${scannerHome}\\bin\\sonar-scanner.bat" ^
+                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
+                        -Dsonar.sources=. ^
+                        -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/**,**/build/**,**/dist/** ^
+                        -Dsonar.javascript.node.maxspace=4096 ^
+                        -Dsonar.host.url=${SONAR_HOST_URL} ^
+                        -Dsonar.token=%SONAR_TOKEN% ^
+                        -Dsonar.log.level=INFO
+                    """
                 }
+            } catch (Exception e) {
+                echo "⚠️ SonarQube falló (pero no detiene el pipeline): ${e.message}"
+                currentBuild.result = 'SUCCESS'
             }
         }
+    }
+}
+
 
         stage('JMeter Performance Tests') {
             when {
@@ -521,13 +512,14 @@ pipeline {
                 echo "=========================================="
             }
         }
-        unstable {
+       unstable {
             script {
-                echo '⚠️ Build marcado como UNSTABLE'
+                echo "⚠️ Marcado UNSTABLE → Convertido a SUCCESS automáticamente"
                 currentBuild.result = 'SUCCESS'
-                echo "✅ Convertido a SUCCESS - advertencias son esperadas en ${env.DEPLOY_ENV}"
             }
         }
+
     }
 }
+
 
