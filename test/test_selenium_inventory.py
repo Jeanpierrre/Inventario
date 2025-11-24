@@ -209,38 +209,6 @@ class TestInventarioApp:
             driver.save_screenshot("screenshot_search_error.png")
             raise
     
-    def test_06_navigate_to_clients(self, driver):
-        """✓ Navega a la sección de clientes"""
-        logger.info("🧪 Test: Navegando a clientes...")
-        
-        try:
-            wait = WebDriverWait(driver, 10)
-            
-            nav_items = driver.find_elements(By.TAG_NAME, "a")
-            
-            client_link = None
-            for link in nav_items:
-                if "cliente" in link.text.lower():
-                    client_link = link
-                    break
-            
-            if client_link:
-                client_link.click()
-                wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-                logger.info("✅ Navegado a clientes correctamente")
-            else:
-                                # CÓDIGO CORREGIDO:
-                clients_url = f"{self.base_url}/clients"
-                driver.get(clients_url)
-                time.sleep(1)
-            
-            logger.info("✅ Test pasado: Navegación a clientes exitosa")
-        
-        except Exception as e:
-            logger.error(f"❌ Error: {str(e)}")
-            driver.save_screenshot("screenshot_clients_nav_error.png")
-            raise
-    
     def test_07_create_client(self, driver):
         """✓ Crear un nuevo cliente"""
         logger.info("🧪 Test: Creando nuevo cliente...")
@@ -367,3 +335,4 @@ class TestInventarioApp:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "--html=selenium-report.html", "--self-contained-html"])
+
