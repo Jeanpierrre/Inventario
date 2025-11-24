@@ -164,12 +164,15 @@ pipeline {
             }
         }
         
-        stage('Python Tests & Coverage') {
-            when {
-                expression { 
-                    return RUN_SONARQUBE == 'true'
-                }
-            }
+      stage('Python Tests & Coverage') {
+    steps {
+        bat '''
+            set DATABASE_URL=sqlite:///test.db
+            echo Ejecutando pytest con cobertura...
+            pytest test/test_db.py test/test_sistema.py --cov=db --cov=sistema --cov-report=xml --cov-report=term-missing
+        '''
+    }
+}
             steps {
                 echo '🐍 Ejecutando pruebas Python con cobertura...'
                 script {
@@ -591,3 +594,4 @@ pipeline {
         }
     }
 }
+
