@@ -28,7 +28,6 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo "📦 Obteniendo código desde Git..."
                 checkout scm
             }
         }
@@ -70,7 +69,11 @@ pipeline {
                 }
             }
         }
-        
+         stage('Build & Test') {
+            steps {
+                echo "Ejecutando build..."
+            }
+        }
         stage('Run Tests') {
             steps {
                 echo "🧪 Ejecutando pruebas unitarias..."
@@ -290,29 +293,24 @@ pipeline {
             }
         }
     }
-    
     post {
         always {
             echo "🧹 Limpiando workspace..."
-            script {
-                bat '''
-                    if exist ".next" rmdir /s /q ".next"
-                    if exist ".scannerwork" rmdir /s /q ".scannerwork"
-                    if exist "results" rmdir /s /q "results"
-                    if exist "dependency-check-report.html" del /q "dependency-check-report.html"
-                    if exist "dependency-check-report.json" del /q "dependency-check-report.json"
-                '''
-            }
+
+            // Asegura contexto FilePath porque estamos dentro del mismo node
+            bat '''
+                if exist ".next" rmdir /s /q ".next"
+                if exist ".scannerwork" rmdir /s /q ".scannerwork"
+                if exist "results" rmdir /s /q "results"
+                if exist "dependency-check-report.html" del /q "dependency-check-report.html"
+                if exist "dependency-check-report.json" del /q "dependency-check-report.json"
+            '''
+
+            echo "🧨 =========================================="
+            echo "       EL PIPELINE FINALIZÓ"
+            echo "=========================================="
         }
-        success {
-            script {
-                echo "✅ =========================================="
-                echo "   ¡PIPELINE COMPLETADO EXITOSAMENTE!"
-                echo "=========================================="
-                echo "🎯 Entorno: ${params.DEPLOY_ENV}"
-                echo "=========================================="
-            }
-        }
+    }
         unstable {
             script {
                 // CORREGIDO: Permitir UNSTABLE en dev
@@ -334,4 +332,5 @@ pipeline {
         }
     }
 }
+
 
