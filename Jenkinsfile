@@ -12,6 +12,11 @@ pipeline {
             defaultValue: false,
             description: 'Saltar pruebas unitarias (solo para emergencias)'
         )
+        booleanParam(
+            name: 'RUN_SELENIUM',
+            defaultValue: true,
+            description: 'Ejecutar pruebas Selenium E2E'
+        )
     }
     
     environment {
@@ -26,6 +31,7 @@ pipeline {
         RUN_NEWMAN = "${params.ENVIRONMENT == 'prod' ? 'false' : 'true'}"
         RUN_JMETER = "${params.ENVIRONMENT == 'dev' ? 'true' : 'false'}"
         RUN_OWASP = "${params.ENVIRONMENT == 'dev' ? 'true' : 'false'}"
+        RUN_SELENIUM = "${params.RUN_SELENIUM == true ? 'true' : 'false'}"
     }
     
     tools {
@@ -44,6 +50,7 @@ pipeline {
                     echo "🧪 Newman (Postman): ${RUN_NEWMAN == 'true' ? '✅ ACTIVADO' : '⏭️ OMITIDO'}"
                     echo "⚡ JMeter: ${RUN_JMETER == 'true' ? '✅ ACTIVADO' : '⏭️ OMITIDO'}"
                     echo "🛡️ OWASP: ${RUN_OWASP == 'true' ? '✅ ACTIVADO' : '⏭️ OMITIDO'}"
+                    echo "🌐 Selenium E2E: ${RUN_SELENIUM == 'true' ? '✅ ACTIVADO' : '⏭️ OMITIDO'}"
                     echo "=========================================="
                     
                     if (DEPLOY_ENV == 'prod') {
@@ -73,6 +80,8 @@ pipeline {
                     node --version
                     echo NPM version:
                     npm --version
+                    echo Python version:
+                    python --version
                     echo Entorno: %DEPLOY_ENV%
                 '''
             }
@@ -94,6 +103,21 @@ pipeline {
                     } else {
                         bat 'npm ci --legacy-peer-deps --prefer-offline || npm install --legacy-peer-deps --prefer-offline'
                     }
+                }
+            }
+        }
+        
+        stage('Install Selenium Dependencies') {
+            when {
+                expression { return RUN_SELENIUM == 'true' }
+            }
+            steps {
+                echo '📦 Instalando dependencias de Selenium...'
+                script {
+                    bat '''
+                        python -m pip install --upgrade pip
+                        pip install selenium pytest pytest-html pytest-xdist webdriver-manager
+                    '''
                 }
             }
         }
@@ -197,6 +221,75 @@ pipeline {
             }
         }
         
+        stage('🌐 Selenium E2E Tests') {
+            when {
+                expression { return RUN_SELENIUM == 'true' && DEPLOY_ENV == 'dev' }
+            }
+            steps {
+                echo '🌐 Ejecutando pruebas E2E con Selenium...'
+                script {
+                    try {
+                        // Crear directorio para resultados
+                        bat 'if not exist selenium-results mkdir selenium-results'
+                        
+                        echo '📦 Verificando ChromeDriver...'
+                        bat '''
+                            pip install --upgrade selenium webdriver-manager
+                        '''
+                        
+                        echo '🚀 Iniciando aplicación Next.js en background...'
+                        bat 'start /B npm run start'
+                        
+                        echo '⏳ Esperando 30 segundos para que Next.js inicie completamente...'
+                        sleep(time: 30, unit: 'SECONDS')
+                        
+                        echo '🧪 Ejecutando pruebas Selenium...'
+                        bat '''
+                            set BASE_URL=http://localhost:3000
+                            set CI=true
+                            
+                            pytest test\\test_selenium_inventory.py ^
+                                --verbose ^
+                                --tb=short ^
+                                --html=selenium-results\\selenium-report.html ^
+                                --self-contained-html ^
+                                -v ^
+                                --junit-xml=selenium-results\\junit.xml
+                        '''
+                        
+                        echo '✅ Pruebas Selenium completadas exitosamente'
+                        
+                        // Archivar reportes
+                        archiveArtifacts artifacts: 'selenium-results/**', 
+                                         allowEmptyArchive: true,
+                                         fingerprint: true
+                        
+                    } catch (Exception e) {
+                        echo "⚠️ Error durante pruebas Selenium: ${e.message}"
+                        
+                        // Capturar y archivar screenshots si existen
+                        bat '''
+                            if exist "screenshot_*.png" (
+                                if not exist selenium-results mkdir selenium-results
+                                move screenshot_*.png selenium-results\\ 2>nul
+                            )
+                        '''
+                        
+                        archiveArtifacts artifacts: 'selenium-results/**,screenshot_*.png', 
+                                         allowEmptyArchive: true
+                        
+                        // No fallar el build por Selenium en dev
+                        currentBuild.result = 'UNSTABLE'
+                        echo "⚠️ Build marcado como UNSTABLE pero continúa"
+                        
+                    } finally {
+                        echo '🛑 Deteniendo aplicación Next.js...'
+                        bat 'taskkill /F /IM node.exe /T || exit 0'
+                    }
+                }
+            }
+        }
+        
         stage('SonarQube Analysis') {
             when {
                 expression { return RUN_SONARQUBE == 'true' }
@@ -224,7 +317,6 @@ pipeline {
                     try {
                         bat 'if not exist newman-results mkdir newman-results'
                         
-                        // ✅ INSTALAR NEWMAN SI NO EXISTE
                         echo '📦 Verificando instalación de Newman...'
                         bat '''
                             where newman >nul 2>&1 || (
@@ -275,7 +367,6 @@ pipeline {
                         echo 'Esperando 20 segundos para que Next.js inicie...'
                         sleep(time: 20, unit: 'SECONDS')
                         
-                        // ✅ VALIDAR RUTA DE JMETER
                         def jmeterPath = 'C:\\apache-jmeter-5.6.3\\bin\\jmeter.bat'
                         def jmeterExists = fileExists(jmeterPath)
                         
@@ -344,7 +435,6 @@ pipeline {
                 echo "🎨 Instalando reglas Google Code Style..."
                 script {
                     try {
-                        // Google Style para JavaScript/TS
                         bat '''
                             npm install --save-dev eslint eslint-config-google
                             if not exist .eslintrc.json (
@@ -355,7 +445,6 @@ pipeline {
                             )
                         '''
             
-                        // ✅ Python Google Style - CORREGIDO
                         bat '''
                             pip install pylint yapf pycodestyle
                             if not exist .pylintrc (
@@ -389,6 +478,12 @@ pipeline {
                         
                         if (RUN_NEWMAN == 'true') {
                             archiveArtifacts artifacts: 'newman-results/**/*', 
+                                           allowEmptyArchive: true,
+                                           fingerprint: true
+                        }
+                        
+                        if (RUN_SELENIUM == 'true') {
+                            archiveArtifacts artifacts: 'selenium-results/**/*', 
                                            allowEmptyArchive: true,
                                            fingerprint: true
                         }
@@ -464,6 +559,10 @@ pipeline {
                 
                 if (RUN_NEWMAN == 'true') {
                     echo "🧪 Reportes Newman disponibles en los artefactos"
+                }
+                
+                if (RUN_SELENIUM == 'true') {
+                    echo "🌐 Reportes Selenium disponibles en los artefactos"
                 }
                 
                 if (DEPLOY_ENV == 'prod') {
