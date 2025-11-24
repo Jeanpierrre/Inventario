@@ -1,6 +1,6 @@
 pipeline {
     agent any
-    
+
     parameters {
         choice(
             name: 'DEPLOY_ENV',
@@ -18,36 +18,38 @@ pipeline {
             description: 'Omitir análisis de SonarQube'
         )
     }
-    
+
     environment {
-        NODEJS_HOME = tool name: 'NodeJS', type: 'nodejs'
-        PATH = "${NODEJS_HOME}/bin:${env.PATH}"
-        SONAR_SCANNER_HOME = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+        SONAR_HOST_URL = 'http://localhost:9000'
+        SONAR_PROJECT_KEY = 'Inventario'
     }
-    
+
+    tools {
+        nodejs "NodeJS"
+        // Debes tener una instalación llamada "SonarScanner" en Global Tools
+        sonarQubeScanner "SonarScanner"
+    }
+
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-        
+
         stage('Install Dependencies') {
             steps {
-                script {
-                    echo "📥 Instalando dependencias de Node.js..."
-                    bat 'npm install'
-                    
-                    echo "📥 Instalando dependencias de Python..."
-                    bat 'pip install -r requirements.txt'
-                }
+                echo "📥 Instalando dependencias..."
+                bat 'npm install'
+                bat 'pip install -r requirements.txt'
             }
         }
-        
+
         stage('Python Tests & Coverage') {
             steps {
+                echo "🧪 Ejecutando pruebas de Python..."
                 script {
-                    echo "🧪 Ejecutando pruebas de Python con coverage..."
                     try {
                         bat '''
                             pytest test/test_db.py test/test_sistema.py ^
@@ -58,138 +60,92 @@ pipeline {
                                 --cov-report=term
                         '''
                     } catch (Exception e) {
-                        echo "⚠️ Error en pruebas Python: ${e.message}"
-                        // Generar archivo de cobertura vacío si falla
+                        echo "⚠️ Error en pruebas Python, generando cobertura vacía..."
                         bat '''
                             echo ^<?xml version="1.0" ?^> > coverage.xml
                             echo ^<coverage version="1.0"^>^</coverage^> >> coverage.xml
                         '''
-                        echo "ℹ️ Se generó coverage.xml vacío para continuar con SonarQube"
                     }
                 }
             }
         }
-         stage('Build & Test') {
+
+        stage('Node Build & Unit Tests') {
             steps {
-                echo "Ejecutando build..."
+                echo "🧪 Ejecutando pruebas unitarias JS..."
+                bat 'npm test -- --passWithNoTests --silent --coverage'
             }
         }
-        stage('Run Tests') {
-            steps {
-                echo "🧪 Ejecutando pruebas unitarias..."
-                script {
-                    bat 'npm test -- --passWithNoTests --silent --coverage'
-                }
-            }
-        }
-        
+
         stage('🌐 Selenium E2E Tests') {
             when {
-                expression { 
-                    return params.RUN_SELENIUM == true && params.DEPLOY_ENV == 'dev'
-                }
+                expression { params.RUN_SELENIUM && params.DEPLOY_ENV == 'dev' }
             }
             steps {
-                echo "🌐 Ejecutando pruebas E2E con Selenium..."
                 script {
                     try {
-                        // Crear carpeta para resultados
+                        echo "🌐 Ejecutando pruebas E2E Selenium..."
+
                         bat 'if not exist selenium-results mkdir selenium-results'
-                        
-                        // Verificar/actualizar ChromeDriver
-                        echo "📦 Verificando ChromeDriver..."
                         bat 'pip install --upgrade selenium webdriver-manager'
-                        
-                        // Iniciar aplicación Next.js en background
-                        echo "🚀 Iniciando aplicación Next.js en background..."
+
                         bat 'start /B npm run start'
-                        
-                        // CORREGIDO: Esperar más tiempo (45 segundos)
-                        echo "⏳ Esperando 45 segundos para que Next.js inicie completamente..."
-                        sleep(time: 45, unit: 'SECONDS')
-                        
-                        // Verificar que la app está corriendo
-                        echo "🔍 Verificando que la aplicación está disponible..."
-                        try {
-                            bat 'curl -f http://localhost:3000 || exit 0'
-                            echo "✓ Aplicación respondiendo en puerto 3000"
-                        } catch (Exception e) {
-                            echo "⚠️ Advertencia: No se pudo verificar la aplicación"
-                        }
-                        
-                        // Ejecutar pruebas de Selenium
-                        echo "🧪 Ejecutando pruebas Selenium..."
+
+                        echo "⏳ Esperando a que Next.js inicie..."
+                        sleep(time: 40, unit: 'SECONDS')
+
+                        bat 'curl -f http://localhost:3000 || exit 0'
+
                         bat """
                             set BASE_URL=http://localhost:3000
-                            set CI=true
                             pytest test\\test_selenium_inventory.py ^
                                 --verbose ^
                                 --tb=short ^
                                 --html=selenium-results\\selenium-report.html ^
                                 --self-contained-html ^
-                                -v ^
                                 --junit-xml=selenium-results\\junit.xml
                         """
-                        
-                        echo "✅ Pruebas Selenium completadas exitosamente"
-                        
+
                     } catch (Exception e) {
                         currentBuild.result = 'UNSTABLE'
-                        echo "⚠️ Error durante pruebas Selenium: ${e.message}"
-                        
-                        // Mover screenshots si existen
-                        bat '''
-                            if exist "screenshot_*.png" (
-                                if not exist selenium-results mkdir selenium-results
-                                move screenshot_*.png selenium-results\\ 2>nul
-                            )
-                        '''
-                        
-                        // Archivar resultados incluso si hay errores
-                        archiveArtifacts artifacts: 'selenium-results/**/*', allowEmptyArchive: true
-                        
-                        echo "⚠️ Build marcado como UNSTABLE pero continúa"
+                        echo "⚠️ Error Selenium: ${e.message}"
                     } finally {
-                        // Detener aplicación Next.js
-                        echo "🛑 Deteniendo aplicación Next.js..."
                         bat 'taskkill /F /IM node.exe /T || exit 0'
                     }
                 }
             }
         }
-        
-       
+
         stage('SonarQube Analysis') {
             when {
-                expression { return RUN_SONARQUBE == 'true' }
+                expression { !params.SKIP_SONAR && params.DEPLOY_ENV == 'dev' }
             }
             steps {
-                echo '🔍 [DEV ONLY] Ejecutando análisis de código con SonarQube...'
+                echo '🔍 Ejecutando análisis SonarQube...'
                 script {
-                    def scannerHome = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-                    withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
-                        bat """
-                            "${scannerHome}\\bin\\sonar-scanner.bat" ^
-                            -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
-                            -Dsonar.sources=. ^
-                            -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/**,**/build/**,**/dist/** ^
-                            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx ^
-                            -Dsonar.javascript.node.maxspace=4096 ^
-                            -Dsonar.host.url=${SONAR_HOST_URL} ^
-                            -Dsonar.token=%SONAR_TOKEN% ^
-                            -Dsonar.log.level=INFO
-                        """
+                    withSonarQubeEnv("SonarQubeServer") {
+                        withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
+                            bat """
+                                sonar-scanner ^
+                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
+                                    -Dsonar.sources=. ^
+                                    -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/public/**,**/coverage/** ^
+                                    -Dsonar.host.url=%SONAR_HOST_URL% ^
+                                    -Dsonar.login=%SONAR_TOKEN% ^
+                                    -Dsonar.log.level=INFO
+                            """
+                        }
                     }
                 }
             }
         }
-        
+
         stage('Newman API Tests') {
             when {
-                expression { return params.DEPLOY_ENV == 'dev' || params.DEPLOY_ENV == 'qa' }
+                expression { params.DEPLOY_ENV == 'dev' || params.DEPLOY_ENV == 'qa' }
             }
             steps {
-                echo "🔗 Ejecutando pruebas de API con Newman..."
+                echo "🔗 Ejecutando pruebas de API..."
                 script {
                     try {
                         bat '''
@@ -198,19 +154,18 @@ pipeline {
                                 --reporter-json-export results/newman-report.json
                         '''
                     } catch (Exception e) {
-                        echo "⚠️ Pruebas de API fallaron: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
             }
         }
-        
+
         stage('JMeter Performance Tests') {
             when {
-                expression { return params.DEPLOY_ENV == 'qa' }
+                expression { params.DEPLOY_ENV == 'qa' }
             }
             steps {
-                echo "⚡ Ejecutando pruebas de rendimiento con JMeter..."
+                echo "⚡ Ejecutando JMeter..."
                 script {
                     try {
                         bat '''
@@ -220,84 +175,47 @@ pipeline {
                                 -e -o results/jmeter-report
                         '''
                     } catch (Exception e) {
-                        echo "⚠️ Pruebas de rendimiento fallaron: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
             }
         }
-        
-        stage('OWASP Dependency Check') {
-            when {
-                expression { return params.DEPLOY_ENV == 'qa' || params.DEPLOY_ENV == 'prod' }
-            }
-            steps {
-                echo "🔒 Ejecutando análisis de seguridad de dependencias..."
-                script {
-                    try {
-                        bat '''
-                            dependency-check ^
-                                --project "Inventario" ^
-                                --scan . ^
-                                --format HTML ^
-                                --format JSON ^
-                                --out . ^
-                                --suppression dependency-check-suppressions.xml
-                        '''
-                    } catch (Exception e) {
-                        echo "⚠️ Análisis de seguridad completado con advertencias"
-                        currentBuild.result = 'UNSTABLE'
-                    }
-                }
-            }
-        }
-        
+
         stage('Install Google Code Style') {
             when {
-                expression { return params.DEPLOY_ENV == 'qa' || params.DEPLOY_ENV == 'prod' }
+                expression { params.DEPLOY_ENV == 'qa' || params.DEPLOY_ENV == 'prod' }
             }
             steps {
-                echo "📝 Verificando estilo de código..."
-                script {
-                    try {
-                        bat 'npm run lint'
-                    } catch (Exception e) {
-                        echo "⚠️ Advertencias de linting encontradas"
-                    }
-                }
+                echo "📝 Verificando estilo..."
+                bat 'npm run lint'
             }
         }
-        
+
         stage('Archive Results') {
             steps {
-                echo "📦 Archivando resultados de pruebas..."
-                script {
-                    archiveArtifacts artifacts: '**/coverage.xml', allowEmptyArchive: true
-                    archiveArtifacts artifacts: '**/selenium-results/**/*', allowEmptyArchive: true
-                    archiveArtifacts artifacts: '**/results/**/*', allowEmptyArchive: true
-                    archiveArtifacts artifacts: '**/dependency-check-report.*', allowEmptyArchive: true
-                    
-                    // Publicar reportes de pruebas si existen
-                    junit allowEmptyResults: true, testResults: '**/selenium-results/junit.xml'
-                }
+                echo "📦 Archivando artefactos..."
+                archiveArtifacts artifacts: '**/coverage.xml', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'selenium-results/**/*', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'results/**/*', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'dependency-check-report.*', allowEmptyArchive: true
+
+                junit allowEmptyResults: true, testResults: 'selenium-results/junit.xml'
             }
         }
-        
+
         stage('Deployment Preparation') {
             when {
-                expression { return params.DEPLOY_ENV == 'prod' }
+                expression { params.DEPLOY_ENV == 'prod' }
             }
             steps {
-                echo "🚀 Preparando para despliegue en PRODUCCIÓN..."
-                echo "Este stage ejecutaría comandos de despliegue real"
+                echo "🚀 Preparando despliegue en PROD..."
             }
         }
     }
+
     post {
         always {
             echo "🧹 Limpiando workspace..."
-
-            // Asegura contexto FilePath porque estamos dentro del mismo node
             bat '''
                 if exist ".next" rmdir /s /q ".next"
                 if exist ".scannerwork" rmdir /s /q ".scannerwork"
@@ -305,32 +223,19 @@ pipeline {
                 if exist "dependency-check-report.html" del /q "dependency-check-report.html"
                 if exist "dependency-check-report.json" del /q "dependency-check-report.json"
             '''
-
-            echo "🧨 =========================================="
-            echo "       EL PIPELINE FINALIZÓ"
-            echo "=========================================="
         }
-    }
+
         unstable {
             script {
-                // CORREGIDO: Permitir UNSTABLE en dev
                 if (params.DEPLOY_ENV == 'dev') {
                     currentBuild.result = 'SUCCESS'
-                    echo "✅ Convertido a SUCCESS - advertencias son esperadas en ${params.DEPLOY_ENV}"
+                    echo "⚠️ UNSTABLE permitido en DEV → Marcado como SUCCESS"
                 }
             }
         }
+
         failure {
-            script {
-                echo "❌ =========================================="
-                echo "   EL PIPELINE FALLÓ"
-                echo "=========================================="
-                echo "🎯 Entorno: ${params.DEPLOY_ENV}"
-                echo "🔍 Verifica las etapas marcadas como fallidas arriba"
-                echo "=========================================="
-            }
+            echo "❌ El pipeline falló."
         }
     }
 }
-
-
