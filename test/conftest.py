@@ -1,141 +1,172 @@
+"""
+conftest.py - Configuración de Pytest para Selenium
+CORREGIDO: Sin emojis para compatibilidad con Windows cp1252
+"""
+
 import pytest
 import logging
 import os
-import sys
-from datetime import datetime
+import time
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.wait import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from webdriver_manager.chrome import ChromeDriverManager
 
-# Configurar logging
+# ============================================================================
+# CONFIGURACIÓN DE LOGGING (SIN EMOJIS)
+# ============================================================================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('selenium_test.log'),
-        logging.StreamHandler(sys.stdout)
+        logging.StreamHandler(),
+        logging.FileHandler('test_selenium.log', encoding='utf-8')
     ]
 )
+
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# CONFIGURACIÓN GLOBAL
+# ============================================================================
+IMPLICIT_WAIT = 10  # segundos
+EXPLICIT_WAIT = 15  # segundos
+PAGE_LOAD_TIMEOUT = 30  # segundos
 
-class SeleniumConfig:
-    """Configuración centralizada para Selenium"""
-    
-    BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
-    IMPLICIT_WAIT = 10
-    EXPLICIT_WAIT = 15
-    PAGE_LOAD_TIMEOUT = 20
-    
-    # Detectar si está en CI/Jenkins
-    HEADLESS = os.getenv("CI") == "true" or os.getenv("JENKINS_URL") is not None
-    SCREEN_RESOLUTION = (1920, 1080)
+# Base URL desde variable de entorno o default
+BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
 
 
-@pytest.fixture(scope="session")
-def setup_test_session():
-    """Setup de la sesión de pruebas"""
-    logger.info("=" * 70)
-    logger.info("🚀 INICIANDO SESIÓN DE PRUEBAS SELENIUM")
-    logger.info(f"📍 Fecha/Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"🌐 URL Base: {SeleniumConfig.BASE_URL}")
-    logger.info(f"🎯 Modo Headless: {SeleniumConfig.HEADLESS}")
-    logger.info("=" * 70)
-    
-    yield
-    
-    logger.info("=" * 70)
-    logger.info("✅ SESIÓN DE PRUEBAS FINALIZADA")
-    logger.info("=" * 70)
-
-
+# ============================================================================
+# FIXTURE: Chrome Driver
+# ============================================================================
 @pytest.fixture(scope="function")
-def chrome_driver():
-    """Fixture que proporciona un driver de Chrome configurado"""
-    
-    logger.info(f"🔧 Configurando ChromeDriver...")
-    
-    options = Options()
+def chrome_driver(request):
+    """
+    Fixture para inicializar y cerrar ChromeDriver automáticamente.
+    Scope: function - Se crea un driver por cada test.
+    """
+    logger.info("[SETUP] Configurando ChromeDriver...")
     
     # Configurar opciones de Chrome
-    if SeleniumConfig.HEADLESS:
-        options.add_argument("--headless")
-        logger.info("   ✓ Modo Headless activado")
+    chrome_options = Options()
     
-    # Opciones de performance
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+    # Opciones para CI/Jenkins
+    if os.getenv("CI") == "true":
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--disable-gpu")
+        logger.info("[CI MODE] Ejecutando en modo headless")
     
-    # Anti-detección
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    )
+    # Opciones de estabilidad
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-popup-blocking")
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--window-size=1920,1080")
     
-    # Deshabilitar notificaciones
-    prefs = {"profile.default_content_setting_values.notifications": 2}
-    options.add_experimental_option("prefs", prefs)
+    # Deshabilitar logging de DevTools
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
     
-    # Deshabilitar logging
-    options.add_argument("--log-level=3")
-    
-    logger.info("   ✓ Opciones configuradas")
-    
-    # Crear driver con webdriver-manager
+    # Inicializar el driver
     try:
         service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
-        logger.info("   ✓ ChromeDriver iniciado")
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # Configurar timeouts
+        driver.implicitly_wait(IMPLICIT_WAIT)
+        driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+        
+        logger.info("   [OK] ChromeDriver inicializado correctamente")
+        logger.info(f"   [INFO] URL Base: {BASE_URL}")
+        
     except Exception as e:
-        logger.error(f"   ❌ Error al iniciar ChromeDriver: {str(e)}")
+        logger.error(f"   [ERROR] Error al inicializar ChromeDriver: {str(e)}")
         raise
     
-    # Configurar timeouts
-    driver.set_window_size(*SeleniumConfig.SCREEN_RESOLUTION)
-    driver.implicitly_wait(SeleniumConfig.IMPLICIT_WAIT)
-    driver.set_page_load_timeout(SeleniumConfig.PAGE_LOAD_TIMEOUT)
-    
-    logger.info(f"   ✓ Resolución: {SeleniumConfig.SCREEN_RESOLUTION}")
-    logger.info(f"   ✓ Timeouts configurados")
-    
+    # Yield driver al test
     yield driver
     
-    # Cleanup
-    logger.info("🔧 Cerrando ChromeDriver...")
+    # Teardown: Cerrar el driver
     try:
+        logger.info("[TEARDOWN] Cerrando ChromeDriver...")
         driver.quit()
-        logger.info("   ✓ ChromeDriver cerrado correctamente")
+        logger.info("   [OK] ChromeDriver cerrado correctamente")
     except Exception as e:
-        logger.error(f"   ⚠️ Error al cerrar driver: {str(e)}")
+        logger.error(f"   [ERROR] Error al cerrar ChromeDriver: {str(e)}")
 
 
+# ============================================================================
+# FIXTURE: WebDriverWait
+# ============================================================================
 @pytest.fixture(scope="function")
 def wait(chrome_driver):
-    """Fixture que proporciona WebDriverWait configurado"""
-    return WebDriverWait(chrome_driver, SeleniumConfig.EXPLICIT_WAIT)
+    """
+    Fixture para WebDriverWait con tiempo de espera explícito.
+    """
+    return WebDriverWait(chrome_driver, EXPLICIT_WAIT)
 
 
-@pytest.fixture(autouse=True)
+# ============================================================================
+# FIXTURE: Base URL
+# ============================================================================
+@pytest.fixture(scope="session")
+def base_url():
+    """
+    Fixture para obtener la URL base de la aplicación.
+    """
+    return BASE_URL
+
+
+# ============================================================================
+# FIXTURE: Log de información del test
+# ============================================================================
+@pytest.fixture(scope="function", autouse=True)
 def log_test_info(request):
-    """Log automático de información del test"""
+    """
+    Fixture para loguear información antes y después de cada test.
+    """
     logger.info("-" * 70)
-    logger.info(f"🧪 TEST: {request.node.name}")
-    logger.info(f"📝 Descripción: {request.node.obj.__doc__ or 'Sin descripción'}")
+    logger.info(f"[TEST] {request.node.name}")
+    logger.info(f"[DESC] {request.node.obj.__doc__ or 'Sin descripción'}")
     logger.info("-" * 70)
     
     yield
     
-    logger.info(f"✅ TEST FINALIZADO: {request.node.name}\n")
+    logger.info(f"[COMPLETED] {request.node.name}\n")
 
 
+# ============================================================================
+# HOOKS DE PYTEST
+# ============================================================================
 def pytest_configure(config):
-    """Configuración de pytest"""
-    config.addinivalue_line(
-        "markers", "smoke: mark test as smoke test"
-    )
-    config.addinivalue_line(
-        "markers", "regression: mark test as regression test"
-    )   
+    """
+    Hook ejecutado antes de iniciar los tests.
+    """
+    logger.info("=" * 70)
+    logger.info("INICIANDO SUITE DE PRUEBAS SELENIUM")
+    logger.info(f"Base URL: {BASE_URL}")
+    logger.info(f"CI Mode: {os.getenv('CI', 'false')}")
+    logger.info("=" * 70)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """
+    Hook ejecutado después de finalizar todos los tests.
+    """
+    logger.info("=" * 70)
+    logger.info("FINALIZANDO SUITE DE PRUEBAS SELENIUM")
+    logger.info(f"Exit Status: {exitstatus}")
+    logger.info("=" * 70)
+
+
+def pytest_runtest_makereport(item, call):
+    """
+    Hook para capturar el resultado de cada test.
+    """
+    if call.when == "call":
+        if call.excinfo is not None:
+            logger.error(f"[FAILED] {item.name}: {call.excinfo.value}")
+        else:
+            logger.info(f"[PASSED] {item.name}")
