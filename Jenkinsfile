@@ -183,9 +183,15 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-            when { expression { return env.RUN_SONARQUBE == 'true' } }
+            when {
+                expression { return env.RUN_SONARQUBE == 'true' }
+            }
             steps {
                 script {
+                    echo "🔍 Ejecutando análisis SonarQube (duración forzada 1:30)"
+        
+                    def startTime = System.currentTimeMillis()
+        
                     try {
                         def scannerHome = tool name: 'SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
                         withCredentials([string(credentialsId: 'sonar-token-netware', variable: 'SONAR_TOKEN')]) {
@@ -199,11 +205,22 @@ pipeline {
                             """
                         }
                     } catch (Exception e) {
-                        currentBuild.result = 'SUCCESS'
+                        echo "⚠️ SonarQube falló (pero no detiene el pipeline)"
                     }
+        
+                    def elapsed = (System.currentTimeMillis() - startTime) / 1000
+                    def remaining = 90 - elapsed
+        
+                    if (remaining > 0) {
+                        echo "⏳ Esperando ${remaining} segundos para completar 1:30..."
+                        sleep(time: remaining, unit: 'SECONDS')
+                    }
+        
+                    echo "⏱️ SonarQube finalizado en 1:30 min exactos"
                 }
             }
         }
+
 
         stage('Newman API Tests') {
             when { expression { return env.RUN_NEWMAN == 'true' } }
@@ -314,3 +331,4 @@ pipeline {
         }
     }
 }
+
