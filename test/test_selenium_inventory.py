@@ -229,7 +229,9 @@ class TestInventarioApp:
                 wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
                 logger.info("✅ Navegado a clientes correctamente")
             else:
-                driver.get(driver.current_url.split("/")[0] + "/clients")
+                                # CÓDIGO CORREGIDO:
+                clients_url = f"{self.base_url}/clients"
+                driver.get(clients_url)
                 time.sleep(1)
             
             logger.info("✅ Test pasado: Navegación a clientes exitosa")
